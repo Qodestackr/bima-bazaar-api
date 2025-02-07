@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "policy-bazaar-api"
+version = "0.1.0"
+description = "Robust FastAPI backend for matatu insurance"
+authors = ["Qodestackr <winchygi@gmail.com>"]
+readme = "README.md"
+
+package-mode = false
+
+# Update the Python version constraint
+[tool.poetry.dependencies]
+python = "^3.10"  # This ensures Python 3.10.x is used
+fastapi = "^0.95.0"
+uvicorn = {extras = ["standard"], version = "^0.34.0"}
+sqlalchemy = { extras = ["asyncio"], version = "^1.4.47" }
+aiosqlite = "^0.18.0"
+aioredis = "^2.0.1"
+pydantic = "^1.10.2"
+httpx = "^0.23.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.2.1"
+pytest-asyncio = "^0.21.0"
+black = "^23.3.0"
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.venv
+  | __pycache__
+)/
+'''
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
