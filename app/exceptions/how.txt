@@ -1,0 +1,15 @@
+try:
+    # some operation that may fail...
+    pass
+except KnownError as e:
+    # Return a clean HTTP response using FastAPI's HTTPException.
+    raise HTTPException(status_code=e.status_code, detail=e.to_dict())
+except Exception as e:
+    # Log, capture, and wrap unknown errors into a KnownError.
+    logger.error("Unexpected error: %s", str(e), exc_info=True)
+    sentry_sdk.capture_exception(e)
+    raise KnownError(
+        message="An unexpected error occurred.",
+        status_code=500,
+        error_code="UNEXPECTED_ERROR"
+    ) from e

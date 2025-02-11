@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_db
+from app.db.database import get_db
 from app.schemas.webhook_subscription import WebhookSubscriptionCreate, WebhookSubscriptionOut
 from app.services.webhook_service import WebhookService
 

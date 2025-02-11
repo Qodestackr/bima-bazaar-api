@@ -3,7 +3,7 @@ import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_db
+from app.db.database import get_db
 from app.services.whatsapp_service import WhatsAppService
 from app.exceptions.base import KnownError
 

@@ -1,19 +1,17 @@
 import logging
 import sentry_sdk
-
-from fastapi import BackgroundTasks
+from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from typing import List
-from datetime import datetime, timedelta
 
 from app.services.webhook_service import WebhookService
-
 from app.models.policy import Policy
-from app.schemas.policy import PolicyCreate, PolicyUpdate, PolicyOut
-from app.core.exceptions import (
+from app.schemas.policy import PolicyCreate, PolicyOut, PolicyUpdate
+from app.exceptions.policy import (
+    PolicyBusinessRuleError,
     PolicyNotFoundException,
     PolicyValidationError,
     DatabaseOperationError,
@@ -37,16 +35,17 @@ class PolicyService:
         )
         
     async def create_policy(self, policy: PolicyCreate) -> Policy:
-        """Create a new insurance policy for a Matatu with robust error handling."""
+        """Create a new insurance policy with robust error handling."""
         try:
             # Validate business rules before creating the policy.
             await self._validate_policy_creation(policy)
             
-            # Calculate premium and handle any errors.
+            # Calculate premium using an enhanced logic that considers route risk.
             try:
                 premium = self._calculate_premium(
                     policy.coverage_type,
-                    policy.matatu_registration
+                    policy.matatu_registration,
+                    policy.route_number  # New parameter for route-based risk adjustment.
                 )
             except Exception as e:
                 self.logger.error(f"Premium calculation failed: {str(e)}", exc_info=True)
@@ -55,7 +54,8 @@ class PolicyService:
                     message="Failed to calculate premium",
                     calculation_details={
                         "coverage_type": policy.coverage_type,
-                        "matatu_registration": policy.matatu_registration
+                        "matatu_registration": policy.matatu_registration,
+                        "route_number": policy.route_number
                     }
                 ) from e
 
@@ -63,11 +63,16 @@ class PolicyService:
             db_policy = Policy(
                 matatu_registration=policy.matatu_registration.upper(),
                 owner_name=policy.owner_name,
+                sacco_name=policy.sacco_name,
+                route_number=policy.route_number,
                 coverage_type=policy.coverage_type,
                 premium_amount=premium,
+                premium_period=policy.premium_period,
+                provider=policy.provider,
                 start_date=datetime.now(),
                 end_date=policy.end_date,
                 status="ACTIVE",
+                is_active=True,
                 last_modified=datetime.now()
             )
 
@@ -81,12 +86,15 @@ class PolicyService:
                 "Policy created successfully",
                 extra={
                     "policy_id": db_policy.id,
-                    "matatu_reg": db_policy.matatu_registration
+                    "matatu_reg": db_policy.matatu_registration,
+                    "sacco_name": db_policy.sacco_name,
+                    "route_number": db_policy.route_number
                 }
             )
             
-            webhook_service = WebhookService(db)
-            await webhook_service.trigger_event("policy_created", {"policy_id": new_policy.id, "status": new_policy.status})
+            # Trigger a webhook event for policy creation.
+            webhook_service = WebhookService(self.db)
+            await webhook_service.trigger_event("policy_created", {"policy_id": db_policy.id, "status": db_policy.status})
             return db_policy
 
         except IntegrityError as e:
@@ -139,7 +147,6 @@ class PolicyService:
             if not policy:
                 self.logger.warning(f"Policy not found: {policy_id}")
                 raise PolicyNotFoundException(
-                    message=f"Policy {policy_id} not found",
                     policy_id=policy_id
                 )
             return policy
@@ -177,8 +184,8 @@ class PolicyService:
                 operation="read_expiring"
             ) from e
 
-    def _calculate_premium(self, coverage_type: str, matatu_registration: str) -> float:
-        """Calculate the premium based on coverage type and other business logic."""
+    def _calculate_premium(self, coverage_type: str, matatu_registration: str, route_number: str) -> float:
+        """Calculate the premium based on coverage type and additional factors such as route risk."""
         try:
             # Define base premium rates.
             base_rates = {
@@ -195,8 +202,16 @@ class PolicyService:
                 )
             
             base_premium = base_rates[coverage_type_key]
-            # Optionally, add more logic here (e.g., adjustments based on vehicle age, route, etc.)
-            return base_premium
+            
+            # Dummy route risk factor:
+            # Example: Certain routes might be considered higher risk and incur a premium multiplier.
+            route_factor = 1.0
+            risky_routes = ["A1", "B2", "C3"]  # This list can be expanded or made dynamic.
+            if route_number.upper() in risky_routes:
+                route_factor = 1.1  # Increase premium by 10% for risky routes.
+            
+            # Future enhancement: incorporate SACCO risk ratings, driver history, etc.
+            return base_premium * route_factor
 
         except Exception as e:
             self.logger.error(f"Premium calculation error: {str(e)}", exc_info=True)
@@ -205,6 +220,7 @@ class PolicyService:
                 message="Failed to calculate premium",
                 calculation_details={
                     "coverage_type": coverage_type,
-                    "matatu_registration": matatu_registration
+                    "matatu_registration": matatu_registration,
+                    "route_number": route_number
                 }
             ) from e

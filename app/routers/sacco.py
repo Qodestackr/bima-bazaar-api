@@ -6,7 +6,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_db
+from app.db.database import get_db
 from app.schemas.policy import PolicyCreate, PolicyOut
 from app.services.policy_service import PolicyService
 

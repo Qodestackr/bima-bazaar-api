@@ -1,0 +1,170 @@
+from typing import Dict, Any, Optional, List, Callable, Awaitable, TypeVar, Generic
+from datetime import datetime, timedelta
+from enum import Enum
+import json
+import asyncio
+from dataclasses import dataclass, asdict, field
+import logging
+from abc import ABC, abstractmethod
+from collections import deque
+from contextlib import asynccontextmanager
+import redis.asyncio as redis
+
+T = TypeVar('T')
+
+# ---------------------------------------------------------------------------
+# ENUMS & DATACLASSES
+# ---------------------------------------------------------------------------
+class StateType(Enum):
+    """Defines the type of state managed by a DurableObject."""
+    COUNTER = "counter"
+    OBJECT = "object"
+    WORKFLOW = "workflow"
+    BATCH = "batch"
+    CREDITS = "credits"
+
+@dataclass
+class BatchConfig:
+    """Configuration for batch processing mechanics."""
+    max_size: int = 100  # Maximum items in a batch
+    flush_interval: float = 5.0  # Seconds between forced flushes
+    max_retries: int = 3
+    retry_delay: float = 1.0  # Base delay for exponential backoff
+
+@dataclass
+class CreditUsage:
+    """Represents a credit deduction event for AI model usage."""
+    model_id: str
+    credits_used: float
+    timestamp: datetime
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class SyncMetadata:
+    """Tracks synchronization state for a DurableObject."""
+    last_sync: datetime
+    sync_count: int
+    dirty: bool
+    version: int = 1
+    batch_stats: Dict[str, int] = field(default_factory=lambda: {"processed": 0, "failed": 0})
+
+# ---------------------------------------------------------------------------
+# DURABLE OBJECT BASE CLASS
+# ---------------------------------------------------------------------------
+class DurableObjectBase(ABC):
+    """Base class for stateful DurableObjects with built-in batch processing capabilities."""
+    
+    def __init__(self, name: str, state_type: StateType, sync_interval: int = 300):
+        """
+        Initializes a DurableObject instance.
+
+        Args:
+            name (str): Unique identifier for the object.
+            state_type (StateType): The category of state being managed.
+            sync_interval (int): Time (in seconds) between automatic syncs.
+        """
+        self.name = name
+        self.state_type = state_type
+        self.state: Dict[str, Any] = {}
+        self.metadata = SyncMetadata(
+            last_sync=datetime.now(),
+            sync_count=0,
+            dirty=False
+        )
+        self.sync_interval = sync_interval
+        self._sync_task: Optional[asyncio.Task] = None
+        self.logger = logging.getLogger(f"DurableObject.{self.name}")
+        self.logger.setLevel(logging.INFO)
+    
+    @abstractmethod
+    async def sync(self):
+        """Abstract method to sync state with persistent storage."""
+        pass
+
+    async def shutdown(self):
+        """Gracefully shuts down the DurableObject, ensuring final state persistence."""
+        if self._sync_task:
+            self._sync_task.cancel()
+            try:
+                await self._sync_task
+            except asyncio.CancelledError:
+                pass
+        if self.metadata.dirty:
+            await self.sync()
+
+# ---------------------------------------------------------------------------
+# AI MODEL CREDIT MANAGEMENT
+# ---------------------------------------------------------------------------
+class AIModelCreditManager(DurableObjectBase):
+    """Manages AI model API credits using batch processing for efficient tracking."""
+    
+    def __init__(self, model_id: str, initial_credits: float = 0.0):
+        super().__init__(f"credits_{model_id}", StateType.CREDITS)
+        self.model_id = model_id
+        self.state.update({
+            "credits_balance": initial_credits,
+            "total_usage": 0.0,
+            "usage_history": []
+        })
+    
+    @asynccontextmanager
+    async def use_credits(self, amount: float, metadata: Dict[str, Any] = None):
+        """Context manager for safely deducting credits with rollback support."""
+        if self.state["credits_balance"] < amount:
+            raise ValueError("Insufficient credits")
+        self.state["credits_balance"] -= amount
+        usage = CreditUsage(
+            model_id=self.model_id,
+            credits_used=amount,
+            timestamp=datetime.now(),
+            metadata=metadata or {}
+        )
+        try:
+            yield
+            # TODO: Add usage to batch processor (to be implemented)
+        except Exception as e:
+            self.state["credits_balance"] += amount  # Rollback
+            raise e
+
+# ---------------------------------------------------------------------------
+# MATATU CLAIMS BATCH PROCESSING
+# ---------------------------------------------------------------------------
+class MatauClaimsBatcher(DurableObjectBase):
+    """Handles batch processing of matatu insurance claims for SACCOs."""
+    
+    def __init__(self, sacco_id: str):
+        super().__init__(f"claims_batcher_{sacco_id}", StateType.BATCH)
+        self.sacco_id = sacco_id
+        self.state.update({
+            "pending_claims": [],
+            "processed_claims": [],
+            "processing_stats": {
+                "total_processed": 0,
+                "total_value": 0.0
+            }
+        })
+
+    async def add_claim(self, claim: Dict):
+        """Adds a new claim to the batch processor."""
+        claim["timestamp"] = datetime.now().isoformat()
+        claim["sacco_id"] = self.sacco_id
+        # TODO: Add claim to batch processor (to be implemented)
+
+# ---------------------------------------------------------------------------
+# EXAMPLE USAGE
+# ---------------------------------------------------------------------------
+async def example_usage():
+    credit_manager = AIModelCreditManager("damage-assessment-v1", initial_credits=1000.0)
+    await credit_manager.start()
+    
+    try:
+        async with credit_manager.use_credits(10.0, {"purpose": "damage assessment"}):
+            await asyncio.sleep(0.1)
+    except ValueError as e:
+        print(f"Credit usage failed: {e}")
+    
+    await credit_manager.shutdown()
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(example_usage())

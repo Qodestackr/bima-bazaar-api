@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime,func
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func, CheckConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
@@ -11,16 +11,22 @@ class Policy(Base):
     
     matatu_registration = Column(String, unique=True, index=True, nullable=False)
     owner_name = Column(String, nullable=False)
-    coverage_type = Column(String, nullable=False, index=True) # e.g., comprehensive, third-party
+    sacco_name = Column(String, nullable=False, index=True)
+    route_number = Column(String, nullable=False, index=True)  # 👉(risk factor).
+    coverage_type = Column(String, nullable=False, index=True) # COMPREHENSIVE, THIRD_PARTY,...
     premium_amount = Column(Float, nullable=False)
-    provider = Column(String)                    # e.g. "Old Mutual"
-    premium_period = Column(String)                      # monthly premium
+    provider = Column(String) 
+    premium_period = Column(String, nullable=False)  # e.g., "monthly", "quarterly"
     start_date = Column(DateTime, default=func.now())
     end_date = Column(DateTime, nullable=False)
     
-    status = Column(String, default="active")  # e.g., active, expired, cancelled
-
-    # created_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, default="ACTIVE")
+    is_active = Column(Boolean, default=True, index=True)
+    last_modified = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+    
+    __table_args__ = (
+        CheckConstraint('end_date > start_date', name='check_end_date'),
+    )
     
     def __repr__(self):
         return f"<Policy {self.matatu_registration}>"

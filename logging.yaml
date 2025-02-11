@@ -1,0 +1,38 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  structured:
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    format: "%(asctime) %(levelname) %(message) %(module) %(funcName) %(lineno) %(process)d %(threadName)"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: structured
+    level: INFO
+    stream: ext://sys.stdout
+
+  # loki:
+  #   class: promtail_client.PromtailHandler -->logging_loki.LokiHandler
+  #   url: http://localhost:3100/loki/api/v1/push
+  #   labels:
+  #     app: bimabazaar
+  #     env: production
+  #   label_keys:
+  #     - request_id
+  #     - client_ip
+  #     - sacco_id
+  #     - claim_id
+  #   formatter: structured
+  #   level: DEBUG
+
+loggers:
+  bimabazaar:
+    handlers: [console] #[console, loki]
+    level: DEBUG
+    propagate: false
+
+root:
+  level: WARNING
+  handlers: [console]

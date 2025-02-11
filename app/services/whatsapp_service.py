@@ -3,6 +3,7 @@ import logging
 import os
 import requests
 from app.exceptions.base import KnownError
+import requests
 
 logger = logging.getLogger(__name__)
 

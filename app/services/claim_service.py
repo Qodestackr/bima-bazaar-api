@@ -9,7 +9,7 @@ import sentry_sdk
 from app.models.claim import Claim, ClaimStatus
 from app.models.policy import Policy  # Ensure Policy model exists
 from app.schemas.claim import ClaimCreate, ClaimUpdate
-from app.core.exceptions import (
+from app.exceptions.claim import (
     ClaimNotFoundException,
     ClaimValidationError,
     DatabaseOperationError,

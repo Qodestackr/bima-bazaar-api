@@ -1,5 +1,6 @@
-import requests
 import logging
+import asyncio
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.webhook_subscription import WebhookSubscription
@@ -9,10 +10,7 @@ logger = logging.getLogger(__name__)
 class WebhookService:
     """
     Service for managing webhook subscriptions and triggering events.
-    
-    Methods:
-        create_subscription: Save a new subscription to the database.
-        trigger_event: Find all subscriptions for a given event and POST the payload.
+    Handles asynchronous calls so that slow subscribers don't block our Matatu engine.
     """
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -20,12 +18,6 @@ class WebhookService:
     async def create_subscription(self, subscription_data) -> WebhookSubscription:
         """
         Create a new webhook subscription.
-        
-        Args:
-            subscription_data: Instance of WebhookSubscriptionCreate.
-        
-        Returns:
-            The created WebhookSubscription object.
         """
         subscription = WebhookSubscription(**subscription_data.dict())
         self.db.add(subscription)
@@ -33,21 +25,33 @@ class WebhookService:
         await self.db.refresh(subscription)
         return subscription
 
+    async def _send_webhook(self, url: str, payload: dict, event: str):
+        """
+        Internal helper to send a single webhook payload using an asynchronous HTTP client.
+        """
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(url, json=payload, timeout=5.0)
+                logger.info(f"Triggered webhook for event '{event}' to {url}: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Failed to trigger webhook for {url}: {e}")
+
     async def trigger_event(self, event: str, payload: dict):
         """
-        Trigger a webhook event by sending the payload to all subscribers.
-        
-        Args:
-            event: The event name (e.g., "policy_created").
-            payload: The data to send in the webhook notification.
-        
-        Logs success or error for each subscriber.
+        Trigger a webhook event by sending the payload to all subscribers concurrently.
+        This ensures our Matatu chaos is handled in the fast lane.
         """
-        result = await self.db.execute(select(WebhookSubscription).where(WebhookSubscription.event == event))
-        subscriptions = result.scalars().all()
-        for sub in subscriptions:
-            try:
-                response = requests.post(sub.url, json=payload, timeout=5)
-                logger.info(f"Triggered webhook for event '{event}' to {sub.url}: {response.status_code}")
-            except Exception as e:
-                logger.error(f"Failed to trigger webhook for {sub.url}: {e}")
+        try:
+            result = await self.db.execute(
+                select(WebhookSubscription).where(WebhookSubscription.event == event)
+            )
+            subscriptions = result.scalars().all()
+            if not subscriptions:
+                logger.info(f"No subscriptions found for event '{event}'")
+                return
+
+            # Launch webhook calls concurrently.
+            tasks = [self._send_webhook(sub.url, payload, event) for sub in subscriptions]
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception as e:
+            logger.error(f"Error triggering event '{event}': {e}")

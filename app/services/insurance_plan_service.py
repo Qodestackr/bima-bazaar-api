@@ -4,7 +4,7 @@ from sqlalchemy import desc
 from typing import List, Optional, Dict, Any
 from app.models.insurance_plan import InsurancePlan
 from app.schemas.insurance_plan import InsurancePlanCreate, InsurancePlanUpdate
-from app.core.exceptions import PlanNotFoundException, ComparisonError
+from app.exceptions import PlanNotFoundException, ComparisonError
 
 class InsurancePlanService:
     """

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_db
+from app.db.database import get_db
 from app.schemas.claim import ClaimCreate, ClaimOut, ClaimUpdate, ClaimProcess
 from app.services.claim_service import ClaimService
 
